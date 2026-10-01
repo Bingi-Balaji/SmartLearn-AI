@@ -1,5 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { MessageSquare, Send, Brain, Database, BookOpen, Video, Sparkles, Trash2, Volume2, Mic } from 'lucide-react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import {
+  MessageSquare, Send, Brain, Database, BookOpen, Video,
+  Sparkles, Trash2, Volume2, Mic, ArrowLeft, Briefcase, ArrowRight, CornerDownLeft
+} from 'lucide-react';
 import { apiFetch } from '../utils/api';
 import { useVoiceTutor } from '../hooks/useVoiceTutor';
 import { MicButton, VoicePlaybackControls, VoiceSettingsToolbar } from '../components/VoiceTutorControls';
@@ -14,11 +18,16 @@ const starters = [
 ];
 
 export default function TutorPage() {
+  const location = useLocation();
+  const navigate = useNavigate();
   const [question, setQuestion] = useState('');
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
   const [meta, setMeta] = useState(null);
   const chatEndRef = useRef(null);
+
+  const isFromInterview = Boolean(location.state?.fromInterview);
+  const interviewContext = location.state || {};
 
   const {
     sttSupported,
@@ -44,6 +53,17 @@ export default function TutorPage() {
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
+
+  const handleBackToInterview = () => {
+    if (interviewContext.interviewGoal || interviewContext.interviewTopic) {
+      const params = new URLSearchParams();
+      if (interviewContext.interviewGoal) params.set('goal', interviewContext.interviewGoal);
+      if (interviewContext.interviewTopic) params.set('topic', interviewContext.interviewTopic);
+      navigate(`/interview?${params.toString()}`);
+    } else {
+      navigate('/interview');
+    }
+  };
 
   const handleStartVoiceInput = () => {
     startListening((transcribedText) => {
@@ -106,6 +126,41 @@ export default function TutorPage() {
 
   return (
     <div className="px-6 py-8 max-w-6xl mx-auto space-y-6">
+      {/* ── Active Interview Return Banner ── */}
+      {isFromInterview && (
+        <div className="glass-card-strong p-4 bg-gradient-to-r from-cyan-950/60 via-slate-900 to-purple-950/50 border border-cyan-500/40 flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-xl shadow-xl animate-fadeIn">
+          <div className="flex items-center gap-3.5">
+            <div className="w-10 h-10 rounded-xl bg-cyan-500/20 border border-cyan-500/40 flex items-center justify-center text-cyan-400 shrink-0 shadow-inner">
+              <Briefcase size={20} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-mono text-cyan-400 font-bold uppercase tracking-wider">
+                  Interview Question Discussion
+                </span>
+                {interviewContext.interviewTopic && (
+                  <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
+                    {interviewContext.interviewTopic}
+                  </span>
+                )}
+              </div>
+              <div className="text-sm font-semibold text-white mt-0.5 max-w-xl truncate">
+                {interviewContext.questionTitle || 'Discussing active interview question with AI Tutor'}
+              </div>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleBackToInterview}
+            className="btn-cyber-primary text-xs py-2.5 px-5 font-bold flex items-center gap-2 bg-gradient-to-r from-cyan-500 to-blue-500 text-black border-none hover:opacity-95 shrink-0 shadow-lg shadow-cyan-950/50 self-start sm:self-auto transition-transform hover:scale-105"
+          >
+            <ArrowLeft size={15} /> Back to AI Interview
+          </button>
+        </div>
+      )}
+
+      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 mb-1">
@@ -114,15 +169,28 @@ export default function TutorPage() {
           </div>
           <p className="text-slate-400 text-sm">Ask any question by voice or text about AI, Machine Learning, Deep Learning, math, datasets, or Python implementation.</p>
         </div>
-        {messages.length > 0 && (
-          <button
-            type="button"
-            onClick={clearChat}
-            className="btn-cyber text-xs flex items-center gap-1.5 border-red-500/30 text-red-400 hover:bg-red-500/10 self-start sm:self-auto"
-          >
-            <Trash2 size={13} /> Clear Chat
-          </button>
-        )}
+
+        <div className="flex items-center gap-2 self-start sm:self-auto">
+          {isFromInterview && (
+            <button
+              type="button"
+              onClick={handleBackToInterview}
+              className="btn-cyber text-xs flex items-center gap-1.5 text-cyan-300 border-cyan-500/30 hover:bg-cyan-950/30"
+            >
+              <ArrowLeft size={13} /> Back to Interview
+            </button>
+          )}
+
+          {messages.length > 0 && (
+            <button
+              type="button"
+              onClick={clearChat}
+              className="btn-cyber text-xs flex items-center gap-1.5 border-red-500/30 text-red-400 hover:bg-red-500/10"
+            >
+              <Trash2 size={13} /> Clear Chat
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="grid lg:grid-cols-[1.5fr_1fr] gap-6">

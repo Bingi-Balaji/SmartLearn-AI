@@ -37,20 +37,33 @@ from services.interview_service import (
     get_daily_challenge,
     evaluate_interview_response,
 )
+from services.db_service import (
+    register_user,
+    login_user,
+    find_user_by_id,
+    get_db_status,
+)
 
 BASE_DIR = Path(__file__).resolve().parent
-app = Flask(__name__)
+FRONTEND_BUILD_DIR = BASE_DIR / "frontend" / "build"
+
+app = Flask(
+    __name__,
+    static_folder=str(FRONTEND_BUILD_DIR / "static") if (FRONTEND_BUILD_DIR / "static").exists() else "static"
+)
 app.secret_key = os.environ.get("SECRET_KEY", "autolearn-fullstack-secret")
 
 try:
     from flask_cors import CORS
-    CORS(app, supports_credentials=True, origins=["http://localhost:3000", "http://127.0.0.1:3000"])
+    CORS(app, supports_credentials=True, origins=["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:5000", "http://127.0.0.1:5000"])
 except Exception:
     pass
 
-# Serve favicon.ico to prevent 404/500 errors
+# Serve favicon.ico
 @app.route('/favicon.ico')
 def favicon():
+    if FRONTEND_BUILD_DIR.exists() and (FRONTEND_BUILD_DIR / "favicon.ico").exists():
+        return send_from_directory(str(FRONTEND_BUILD_DIR), 'favicon.ico')
     return send_from_directory(
         os.path.join(app.root_path, 'static'),
         'favicon.ico',
@@ -635,31 +648,117 @@ def add_no_cache_headers(resp):
     return resp
 
 
+@app.errorhandler(404)
+def handle_404(err):
+    if request.path.startswith('/api/'):
+        return jsonify({"ok": False, "error": f"API endpoint '{request.path}' not found."}), 404
+    if FRONTEND_BUILD_DIR.exists():
+        index_file = FRONTEND_BUILD_DIR / "index.html"
+        if index_file.exists():
+            return send_from_directory(str(FRONTEND_BUILD_DIR), "index.html")
+    return jsonify({
+        "ok": True,
+        "message": "AutoLearn AI Backend API is running.",
+        "frontend": "http://localhost:3000",
+        "api_status": "/api/status",
+        "database": "AIEDUCATION",
+    })
+
+
 @app.errorhandler(Exception)
 def handle_api_error(err):
     if isinstance(err, HTTPException):
         code = err.code or 500
         description = err.description
+        if code == 404 and not request.path.startswith('/api/'):
+            if FRONTEND_BUILD_DIR.exists() and (FRONTEND_BUILD_DIR / "index.html").exists():
+                return send_from_directory(str(FRONTEND_BUILD_DIR), "index.html")
     else:
         code = 500
         description = str(err) or "Internal server error"
     if request.path.startswith('/api/'):
         return jsonify({"ok": False, "error": description}), code
-    raise err
+    if FRONTEND_BUILD_DIR.exists() and (FRONTEND_BUILD_DIR / "index.html").exists():
+        return send_from_directory(str(FRONTEND_BUILD_DIR), "index.html")
+    return jsonify({"ok": False, "error": description}), code
 
 
-@app.route("/")
-def index():
-    return jsonify({
-        "message": "Backend API is running. Start the React frontend with npm start and open http://localhost:3000",
-        "frontend": "http://localhost:3000",
-        "api_status": "/api/status",
-    })
 
 
 @app.route('/api/status')
 def api_status():
     return jsonify({"ok": True, "real_data_used": DATA_INFO["real_data_used"], "rows": DATA_INFO["rows"], "engine": MODEL_BUNDLE.engine})
+
+
+# ─────────────────────────────────────────────────────────────
+# AUTHENTICATION ENDPOINTS (MongoDB AIEDUCATION)
+# ─────────────────────────────────────────────────────────────
+
+@app.route('/api/auth/signup', methods=['POST'])
+def api_auth_signup():
+    data = request.get_json(silent=True) or {}
+    name = (data.get('name') or '').strip()
+    email = (data.get('email') or '').strip()
+    password = (data.get('password') or '').strip()
+    goal = (data.get('goal') or 'placement').strip()
+    
+    if not email or not password:
+        return jsonify({'ok': False, 'error': 'Please provide both email and password.'}), 400
+    if len(password) < 6:
+        return jsonify({'ok': False, 'error': 'Password must be at least 6 characters long.'}), 400
+        
+    res = register_user(name=name, email=email, password=password, goal=goal)
+    if not res.get('ok'):
+        return jsonify(res), 400
+        
+    session['user'] = res['user']
+    session['user_id'] = res['user']['user_id']
+    return jsonify(res)
+
+
+@app.route('/api/auth/login', methods=['POST'])
+def api_auth_login():
+    data = request.get_json(silent=True) or {}
+    email = (data.get('email') or '').strip()
+    password = (data.get('password') or '').strip()
+    
+    if not email or not password:
+        return jsonify({'ok': False, 'error': 'Please provide both email and password.'}), 400
+        
+    res = login_user(email=email, password=password)
+    if not res.get('ok'):
+        return jsonify(res), 401
+        
+    session['user'] = res['user']
+    session['user_id'] = res['user']['user_id']
+    return jsonify(res)
+
+
+@app.route('/api/auth/me', methods=['GET'])
+def api_auth_me():
+    user = session.get('user')
+    if not user:
+        # Check if user_id in session
+        user_id = session.get('user_id')
+        if user_id:
+            user = find_user_by_id(user_id)
+            if user:
+                session['user'] = user
+    if not user:
+        return jsonify({'ok': False, 'user': None}), 401
+    return jsonify({'ok': True, 'user': user})
+
+
+@app.route('/api/auth/logout', methods=['POST'])
+def api_auth_logout():
+    session.pop('user', None)
+    session.pop('user_id', None)
+    return jsonify({'ok': True, 'message': 'Logged out successfully.'})
+
+
+@app.route('/api/db/status', methods=['GET'])
+def api_database_status():
+    return jsonify(get_db_status())
 
 
 @app.route('/api/start', methods=['POST'])
@@ -1173,6 +1272,30 @@ def api_interview_daily_challenge():
         'ok': True,
         'goal': goal,
         'challenge': challenge
+    })
+
+
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
+def serve_spa(path):
+    # If path starts with api/ and got here, it means the API route does not exist
+    if path.startswith('api/'):
+        return jsonify({"ok": False, "error": f"API route '/{path}' not found."}), 404
+        
+    if FRONTEND_BUILD_DIR.exists():
+        target_file = FRONTEND_BUILD_DIR / path
+        if path and target_file.exists() and target_file.is_file():
+            return send_from_directory(str(FRONTEND_BUILD_DIR), path)
+        index_file = FRONTEND_BUILD_DIR / "index.html"
+        if index_file.exists():
+            return send_from_directory(str(FRONTEND_BUILD_DIR), "index.html")
+            
+    return jsonify({
+        "ok": True,
+        "message": "AutoLearn AI Backend API is running.",
+        "frontend": "http://localhost:3000",
+        "api_status": "/api/status",
+        "database": "AIEDUCATION",
     })
 
 

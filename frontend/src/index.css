@@ -440,7 +440,21 @@ body {
   box-shadow: 0 0 0 3px rgba(0, 212, 255, 0.08);
   background: rgba(255, 255, 255, 0.07);
 }
-.cyber-input::placeholder { color: rgba(148, 163, 184, 0.5); }
+.cyber-input::placeholder { 
+  color: rgba(148, 163, 184, 0.55);
+  font-size: 13.5px;
+}
+
+.cyber-input-icon-left {
+  padding-left: 42px !important;
+}
+.cyber-input-icon-right {
+  padding-right: 42px !important;
+}
+.cyber-input-icons-both {
+  padding-left: 42px !important;
+  padding-right: 42px !important;
+}
 
 textarea.cyber-input { resize: vertical; min-height: 120px; }
 
